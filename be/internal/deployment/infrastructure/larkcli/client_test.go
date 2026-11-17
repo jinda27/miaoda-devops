@@ -43,9 +43,14 @@ for name in LARKSUITE_CLI_USER_ACCESS_TOKEN LARKSUITE_CLI_APP_ID; do
   if printenv "$name" >/dev/null 2>&1; then exit 1; fi
 done
 case "$1" in
-  profile) printf '[{"name":"tenant","user":"测试用户","tokenStatus":"%s"}]' "${MOCK_TOKEN_STATUS:-valid}" ;;
+  profile)
+    status="${MOCK_TOKEN_STATUS:-valid}"
+    # 授权成功后模拟 CLI 持久化有效登录。
+    if [ -f .authorized ]; then status=valid; fi
+    printf '[{"name":"tenant","user":"测试用户","tokenStatus":"%s"}]' "$status" ;;
   auth)
     if [ "${MOCK_LOGIN_FAIL:-}" = "1" ]; then exit 1; fi
+    : > .authorized
     printf '{}' ;;
 esac
 `
@@ -110,12 +115,30 @@ func TestCLIAndPackagingIgnoreExternalCredentials(t *testing.T) {
 	}
 }
 
-func TestPlatformRequiresAuthorizationAfterStartup(t *testing.T) {
+func TestExistingLoginStateIsReused(t *testing.T) {
 	client := newAuthorizationTestClient(t)
-	ctx := context.Background()
-	// 本机已有有效凭据也不能直接使用平台。
-	if _, err := client.SelectProfile(ctx, "tenant", true); err == nil {
-		t.Fatal("启动后沿用了已有登录状态")
+	profiles, err := client.Profiles(context.Background())
+	if err != nil || len(profiles) != 1 {
+		t.Fatalf("无法读取本地登录状态：%v", err)
+	}
+	// 直接沿用 lark-cli 已保存的登录状态。
+	if profiles[0].User != "测试用户" || !profiles[0].Ready() {
+		t.Fatalf("本地登录状态未透传：%+v", profiles[0])
+	}
+	if _, err := client.SelectProfile(context.Background(), "tenant", true); err != nil {
+		t.Fatalf("已有登录无法使用：%v", err)
+	}
+	// 平台重启后继续复用本机凭据。
+	if _, err := NewClient(client.WorkDir()).SelectProfile(context.Background(), "tenant", true); err != nil {
+		t.Fatalf("重启后未复用本地登录：%v", err)
+	}
+}
+
+func TestExpiredLoginRequiresAuthorization(t *testing.T) {
+	client := newAuthorizationTestClient(t)
+	t.Setenv("MOCK_TOKEN_STATUS", "expired")
+	if _, err := client.SelectProfile(context.Background(), "tenant", true); err == nil {
+		t.Fatal("过期登录已允许使用平台")
 	}
 	auth := NewAuthService(client)
 	auth.complete(Authorization{ID: "test", profile: "tenant"}, "test-device")
@@ -123,34 +146,28 @@ func TestPlatformRequiresAuthorizationAfterStartup(t *testing.T) {
 	if err != nil || result.Status != "done" {
 		t.Fatalf("授权未完成：status=%s err=%v", result.Status, err)
 	}
-	if _, err := client.SelectProfile(ctx, "tenant", true); err != nil {
-		t.Fatalf("授权完成后仍无法使用：%v", err)
-	}
-	// 新平台进程重新要求授权。
-	if _, err := NewClient(client.WorkDir()).SelectProfile(ctx, "tenant", true); err == nil {
-		t.Fatal("重启后沿用了上次平台授权")
+	// 授权后 CLI 返回有效登录，可直接使用。
+	if _, err := client.SelectProfile(context.Background(), "tenant", true); err != nil {
+		t.Fatalf("授权后仍无法使用：%v", err)
 	}
 }
 
 func TestFailedAuthorizationDoesNotUnlockPlatform(t *testing.T) {
-	// 登录失败或未获得有效用户均不可放行。
-	for _, scenario := range []string{"login_failed", "invalid_token"} {
-		t.Run(scenario, func(t *testing.T) {
-			client := newAuthorizationTestClient(t)
-			if scenario == "login_failed" {
-				t.Setenv("MOCK_LOGIN_FAIL", "1")
-			} else {
-				t.Setenv("MOCK_TOKEN_STATUS", "expired")
-			}
-			auth := NewAuthService(client)
-			auth.complete(Authorization{ID: "test", profile: "tenant"}, "test-device")
-			result, err := auth.Status("test", "tenant")
-			if err != nil || result.Status != "failed" {
-				t.Fatalf("无效授权未失败：status=%s err=%v", result.Status, err)
-			}
-			if _, err := client.SelectProfile(context.Background(), "tenant", true); err == nil {
-				t.Fatal("无效授权允许使用平台")
-			}
-		})
-	}
+	t.Run("login_failed", func(t *testing.T) {
+		client := newAuthorizationTestClient(t)
+		t.Setenv("MOCK_LOGIN_FAIL", "1")
+		auth := NewAuthService(client)
+		auth.complete(Authorization{ID: "test", profile: "tenant"}, "test-device")
+		result, err := auth.Status("test", "tenant")
+		if err != nil || result.Status != "failed" {
+			t.Fatalf("无效授权未失败：status=%s err=%v", result.Status, err)
+		}
+	})
+	t.Run("no_valid_user", func(t *testing.T) {
+		client := newAuthorizationTestClient(t)
+		t.Setenv("MOCK_TOKEN_STATUS", "not_logged_in")
+		if _, err := client.SelectProfile(context.Background(), "tenant", true); err == nil {
+			t.Fatal("无效登录允许使用平台")
+		}
+	})
 }

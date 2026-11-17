@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -58,13 +57,11 @@ func (e *CLIError) Error() string {
 }
 
 type Client struct {
-	workDir    string
-	mu         sync.RWMutex
-	authorized map[string]bool
+	workDir string
 }
 
 func NewClient(workDir string) *Client {
-	return &Client{workDir: workDir, authorized: map[string]bool{}}
+	return &Client{workDir: workDir}
 }
 
 // externalCredential 识别工具注入的飞书凭证及应用身份。
@@ -187,23 +184,6 @@ func commandOperation(args []string) string {
 }
 
 func (c *Client) Profiles(ctx context.Context) ([]Profile, error) {
-	profiles, err := c.storedProfiles(ctx)
-	if err != nil {
-		return nil, err
-	}
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	// 本次启动未授权的账号始终展示为待登录。
-	for i := range profiles {
-		if !c.authorized[profiles[i].Name] {
-			profiles[i].User = ""
-			profiles[i].TokenStatus = "not_logged_in"
-		}
-	}
-	return profiles, nil
-}
-
-func (c *Client) storedProfiles(ctx context.Context) ([]Profile, error) {
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 	profiles := []Profile{}
@@ -211,17 +191,15 @@ func (c *Client) storedProfiles(ctx context.Context) ([]Profile, error) {
 	return profiles, err
 }
 
+// confirmAuthorization 确认授权完成后 CLI 已保存有效登录。
 func (c *Client) confirmAuthorization(ctx context.Context, name string) error {
-	profiles, err := c.storedProfiles(ctx)
+	profiles, err := c.Profiles(ctx)
 	if err != nil {
 		return err
 	}
-	// 仅在授权完成且 CLI 返回有效用户后放行。
+	// 仅在 CLI 返回有效用户后视为授权成功。
 	for _, profile := range profiles {
 		if profile.Name == name && profile.Ready() {
-			c.mu.Lock()
-			c.authorized[name] = true
-			c.mu.Unlock()
 			return nil
 		}
 	}

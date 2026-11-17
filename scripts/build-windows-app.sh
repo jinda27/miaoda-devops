@@ -32,7 +32,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const [stage] = process.argv.slice(2)
-fs.writeFileSync(path.join(stage, '使用说明.txt'), '完整解压后双击“妙搭部署平台.exe”，浏览器将打开本地工作台。\r\n缺少依赖时进入初始环境，按系统和架构一键下载并安装。\r\n优先从网络下载，失败后尝试飞书文档；下载包缓存到 packages。\r\n飞书文档下载需要已安装 lark-cli、登录用户有文档访问权限及 docs/drive 授权；也可打开文档手动下载到 packages 后重试。\r\n每次启动后，请使用自己的飞书账号重新授权，完成后才能打包和部署。\r\n运行无需预装 Node.js、npm 或 Go。飞书授权和妙搭操作仍需访问相应服务。\r\n')
+fs.writeFileSync(path.join(stage, '使用说明.txt'), '完整解压后双击“妙搭部署平台.exe”，浏览器将打开本地工作台。\r\n缺少依赖时进入初始环境，按系统和架构一键下载并安装。\r\n优先从网络下载，失败后尝试飞书文档；下载包缓存到 packages。\r\n飞书文档下载需要已安装 lark-cli、登录用户有文档访问权限及 docs/drive 授权；也可打开文档手动下载到 packages 后重试。\r\n平台复用本机 lark-cli 已保存的登录，登录过期时在页面重新授权。\r\n运行无需预装 Node.js、npm 或 Go。飞书授权和妙搭操作仍需访问相应服务。\r\n')
 NODE
 # 原生 ZIP 打包保留中文名称和空缓存目录。
 "$go_bin" -C "$root/be" run ./cmd/bundle -source "$stage" -output "$root/dist/妙搭部署平台-windows-x64.zip"
