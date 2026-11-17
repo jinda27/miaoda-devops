@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"app-deployment-platform/internal/deployment/domain"
+	"app-deployment-platform/internal/deployment/infrastructure/larkcli"
 )
 
 // DDL 按阶段执行，同阶段最多三个文件并发提交。
@@ -855,7 +856,7 @@ func (s *Client) sparkSQL(
 		args = append(args, "--profile="+profile)
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Dir, cmd.WaitDelay = work, 5*time.Second
+	cmd.Dir, cmd.Env, cmd.WaitDelay = work, larkcli.Environment(), 5*time.Second
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	output, runErr := cmd.Output()

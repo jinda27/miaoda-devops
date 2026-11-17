@@ -50,12 +50,8 @@ mkdir -p "$log_dir" || show_error "无法创建项目的日志目录。"
 startup_dir="$(mktemp -d "$log_dir/.macos-startup.XXXXXXXX")" || show_error "无法写入项目的日志目录。"
 trap 'rm -rf "$startup_dir"' EXIT
 export MIAODA_WEB_DIR="$resources/web" MIAODA_DESKTOP_STARTUP=1 MIAODA_PROJECT_DIR="$project"
-# 优先使用应用附带的离线安装包。
-if [[ -r "$resources/packages/manifest.json" ]]; then
-  export MIAODA_PACKAGES_DIR="$resources/packages"
-else
-  export MIAODA_PACKAGES_DIR="$project/packages"
-fi
+# 下载包统一缓存到当前项目的可写目录。
+export MIAODA_PACKAGES_DIR="$project/packages"
 /usr/bin/nohup "$bin_dir/server" </dev/null >"$startup_dir/ready" 2>"$startup_dir/stderr" &
 
 # 就绪信号来自本次启动的进程，HTTP 检查确认工作台已开始响应。

@@ -40,23 +40,8 @@ install -m 0755 "$root/scripts/macos-app-launcher.sh" "$contents/MacOS/launcher"
 install -m 0644 "$root/scripts/port-guard.sh" "$contents/Resources/port-guard.sh"
 cp -R "$root/fe/dist/." "$contents/Resources/web/"
 printf '%s\n' "$PATH" > "$contents/Resources/build-path"
-node --input-type=module - "$root" "$contents/Resources" "$arch" <<'NODE'
-import fs from 'node:fs'
-import path from 'node:path'
 
-const [root, resources, arch] = process.argv.slice(2)
-const platform = 'mac/' + (arch === 'amd64' ? 'x64' : arch)
-const manifest = JSON.parse(fs.readFileSync(path.join(root, 'packages/manifest.json'), 'utf8'))
-const packages = manifest.packages.filter((item) => !item.optional && [platform, 'shared'].includes(item.platform))
-// 应用附带当前架构的离线运行包，复制应用后仍能初始化环境。
-for (const item of packages) {
-  const target = path.join(resources, 'packages', item.path)
-  fs.mkdirSync(path.dirname(target), { recursive: true })
-  fs.copyFileSync(path.join(root, 'packages', item.path), target)
-}
-fs.writeFileSync(path.join(resources, 'packages/manifest.json'), JSON.stringify({ ...manifest, packages, total_size_bytes: packages.reduce((sum, item) => sum + item.size_bytes, 0) }, null, 2))
-NODE
-
+# 安装清单及小型打包组件由服务内置，构建无需预存安装包。
 CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" "$go_bin" -C "$root/be" \
   build -trimpath -o "$contents/MacOS/server" ./cmd/server
 

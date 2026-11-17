@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "path": "mac/arm64/node-v20.20.2-darwin-arm64.tar.gz",
+      "component": "node",
+      "version": "20.20.2",
+      "platform": "mac/arm64",
+      "source": "https://nodejs.org/dist/v20.20.2/node-v20.20.2-darwin-arm64.tar.gz",
+      "sha256": "466e05f3477c20dfb723054dfebffe55bc74660ee77f612166fca121dacb65b6"
+    },
+    {
+      "path": "mac/arm64/lark-cli-1.0.100-darwin-arm64.tar.gz",
+      "component": "lark-cli",
+      "version": "1.0.100",
+      "platform": "mac/arm64",
+      "source": "https://github.com/larksuite/cli/releases/download/v1.0.100/lark-cli-1.0.100-darwin-arm64.tar.gz",
+      "sha256": "d068a27f608335016a8a7fb1b3cd1fccfb96bda92075a027e2bf1c4c23134e30"
+    },
+    {
+      "path": "mac/arm64/dugite-native-v2.56.1-238326e-macOS-arm64.tar.gz",
+      "component": "git",
+      "version": "2.56.1",
+      "platform": "mac/arm64",
+      "source": "https://github.com/desktop/dugite-native/releases/download/v2.56.1/dugite-native-v2.56.1-238326e-macOS-arm64.tar.gz",
+      "sha256": "a882ec6882416b57d212a22bac845ae27944f96cf73453a864f6a12c17863a79"
+    },
+    {
+      "path": "mac/x64/node-v20.20.2-darwin-x64.tar.gz",
+      "component": "node",
+      "version": "20.20.2",
+      "platform": "mac/x64",
+      "source": "https://nodejs.org/dist/v20.20.2/node-v20.20.2-darwin-x64.tar.gz",
+      "sha256": "8be6f5e4bb128c82774f8a0b8d7a1cc1365a7977d9657cece0ca647b3fe04e61"
+    },
+    {
+      "path": "mac/x64/lark-cli-1.0.100-darwin-amd64.tar.gz",
+      "component": "lark-cli",
+      "version": "1.0.100",
+      "platform": "mac/x64",
+      "source": "https://github.com/larksuite/cli/releases/download/v1.0.100/lark-cli-1.0.100-darwin-amd64.tar.gz",
+      "sha256": "7f5d442e5da3ae62b03a5b552880b651637b16b2eed91b588afaca6d72a6643a"
+    },
+    {
+      "path": "mac/x64/dugite-native-v2.56.1-238326e-macOS-x64.tar.gz",
+      "component": "git",
+      "version": "2.56.1",
+      "platform": "mac/x64",
+      "source": "https://github.com/desktop/dugite-native/releases/download/v2.56.1/dugite-native-v2.56.1-238326e-macOS-x64.tar.gz",
+      "sha256": "3fdb0c2f102fe0273d64b5d5fb77315c19f2b4648a154593723cb9ed98f2bc7d"
+    },
+    {
+      "path": "windows/x64/node-v20.20.2-win-x64.zip",
+      "component": "node",
+      "version": "20.20.2",
+      "platform": "windows/x64",
+      "source": "https://nodejs.org/dist/v20.20.2/node-v20.20.2-win-x64.zip",
+      "sha256": "dc3700fdd57a63eedb8fd7e3c7baaa32e6a740a1b904167ff4204bc68ed8bf77"
+    },
+    {
+      "path": "windows/x64/lark-cli-1.0.100-windows-amd64.zip",
+      "component": "lark-cli",
+      "version": "1.0.100",
+      "platform": "windows/x64",
+      "source": "https://github.com/larksuite/cli/releases/download/v1.0.100/lark-cli-1.0.100-windows-amd64.zip",
+      "sha256": "93118ca1992b4e5f1a40c14301f6fbde703d5e9160a9113099e409b4bd1c1d8d"
+    },
+    {
+      "path": "windows/x64/PortableGit-2.56.1-64-bit.7z.exe",
+      "component": "git-bash",
+      "version": "2.56.1.windows.1",
+      "platform": "windows/x64",
+      "source": "https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/PortableGit-2.56.1-64-bit.7z.exe",
+      "sha256": "9dd04a608ceb5f6ab32a73709e0ecb159d211da71b697c45ff81f6dd0c6b49c7"
+    },
+    {
+      "path": "windows/x64/zip-3.0-5-windows-x64.zip",
+      "component": "zip",
+      "version": "3.0-5",
+      "platform": "windows/x64",
+      "source": "https://mirror.msys2.org/msys/x86_64/zip-3.0-5-x86_64.pkg.tar.zst",
+      "source_sha256": "874e20bf625fbe577949444faf30ab9a725dbd4886ec9bff26459152da7f831c",
+      "source_path": "windows/x64/zip-3.0-5-x86_64.pkg.tar.zst",
+      "sha256": "bd67761255e145eec5c5f98b0b1eaafcd36ba383b29a6b08a104683799cdb1f6"
+    },
+    {
+      "path": "shared/miaoda-app-assemble-scripts.tar.gz",
+      "component": "assemble",
+      "version": "2026.11.16",
+      "platform": "shared",
+      "sha256": "831dd6da108b8714933d2502d45a98b5fe509b23aabdaad523b95f2ac39456d5"
+    }
+  ]
+}

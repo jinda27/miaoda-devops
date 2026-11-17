@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 const maxExtractedSize = int64(2 << 30)
@@ -86,12 +88,12 @@ func (t *Toolset) Install(ctx context.Context, component string, progress func(s
 	if err != nil {
 		return err
 	}
-	filename, err := safePath(t.Packages, pkg.Path)
-	if err != nil {
-		return err
+	downloader := t.Downloader
+	if downloader == nil {
+		downloader = &Downloader{Cache: t.Packages}
 	}
-	progress("校验安装包", 10)
-	if err := checkDigest(ctx, filename, pkg.SHA256); err != nil {
+	filename, err := downloader.Acquire(ctx, pkg, progress)
+	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(t.Root, 0700); err != nil {
@@ -104,6 +106,9 @@ func (t *Toolset) Install(ctx context.Context, component string, progress func(s
 	defer os.RemoveAll(stage)
 	progress("解压安装包", 35)
 	switch {
+	case strings.HasSuffix(filename, ".tar.zst"):
+		// Windows zip 的官方 MSYS2 原始包使用 Zstandard 压缩。
+		err = extractZstdTar(ctx, filename, stage)
 	case strings.HasSuffix(filename, ".tar.gz"):
 		err = extractTar(ctx, filename, stage, component == "node")
 	case strings.HasSuffix(filename, ".zip"):
@@ -237,7 +242,25 @@ func extractTar(ctx context.Context, filename, root string, stripRoot bool) erro
 		return err
 	}
 	defer compressed.Close()
-	reader := tar.NewReader(compressed)
+	return extractTarReader(ctx, compressed, root, stripRoot)
+}
+
+func extractZstdTar(ctx context.Context, filename, root string) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	compressed, err := zstd.NewReader(file, zstd.WithDecoderMaxMemory(64<<20))
+	if err != nil {
+		return err
+	}
+	defer compressed.Close()
+	return extractTarReader(ctx, compressed, root, false)
+}
+
+func extractTarReader(ctx context.Context, source io.Reader, root string, stripRoot bool) error {
+	reader := tar.NewReader(source)
 	var total int64
 	var links []archiveLink
 	// 链接延后创建，避免后续文件经链接写到目录外。

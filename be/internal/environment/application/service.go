@@ -85,8 +85,8 @@ func installPlan(report domain.Report) []domain.Step {
 		name      string
 		ids       []string
 	}{
-		{"node", "Node.js / npm", []string{"node", "npm"}},
 		{"lark-cli", "lark-cli", []string{"lark-cli"}},
+		{"node", "Node.js / npm", []string{"node", "npm"}},
 		{"git", "Git", []string{"git"}},
 		{"zip", "zip", []string{"zip"}},
 		{"assemble", "打包组件", []string{"assemble"}},

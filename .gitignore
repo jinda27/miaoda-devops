@@ -5,3 +5,6 @@
 /packages/
 /fe/node_modules/
 /fe/dist/
+/.history/
+/.uploads/
+/miaoda-devops-offline-*.zip

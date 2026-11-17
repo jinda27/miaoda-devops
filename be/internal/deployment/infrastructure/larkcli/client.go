@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -57,11 +58,48 @@ func (e *CLIError) Error() string {
 }
 
 type Client struct {
-	workDir string
+	workDir    string
+	mu         sync.RWMutex
+	authorized map[string]bool
 }
 
 func NewClient(workDir string) *Client {
-	return &Client{workDir: workDir}
+	return &Client{workDir: workDir, authorized: map[string]bool{}}
+}
+
+// externalCredential 识别工具注入的飞书凭证及应用身份。
+func externalCredential(name string) bool {
+	switch strings.ToUpper(name) {
+	case "LARKSUITE_CLI_USER_ACCESS_TOKEN", "LARKSUITE_CLI_USER_REFRESH_TOKEN",
+		"LARKSUITE_CLI_TENANT_ACCESS_TOKEN", "LARKSUITE_CLI_APP_ID", "LARKSUITE_CLI_APP_SECRET":
+		return true
+	default:
+		return false
+	}
+}
+
+// ClearInheritedCredentials 启动时清除外部工具凭证。
+func ClearInheritedCredentials() {
+	// 保留运行环境，仅移除飞书凭证和应用身份。
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if externalCredential(name) {
+			_ = os.Unsetenv(name)
+		}
+	}
+}
+
+// Environment 为所有飞书命令和打包脚本过滤外部凭证。
+func Environment() []string {
+	env := []string{}
+	// 子进程独立过滤，避免绕过启动入口继承临时凭证。
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if !externalCredential(name) {
+			env = append(env, entry)
+		}
+	}
+	return env
 }
 
 func (c *Client) WorkDir() string {
@@ -97,7 +135,7 @@ func (c *Client) Run(ctx context.Context, dir, profile string, dest any, args ..
 		args = append(args, "--profile="+profile)
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Dir = dir
+	cmd.Dir, cmd.Env = dir, Environment()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	output, runErr := cmd.Output()
@@ -149,11 +187,45 @@ func commandOperation(args []string) string {
 }
 
 func (c *Client) Profiles(ctx context.Context) ([]Profile, error) {
+	profiles, err := c.storedProfiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	// 本次启动未授权的账号始终展示为待登录。
+	for i := range profiles {
+		if !c.authorized[profiles[i].Name] {
+			profiles[i].User = ""
+			profiles[i].TokenStatus = "not_logged_in"
+		}
+	}
+	return profiles, nil
+}
+
+func (c *Client) storedProfiles(ctx context.Context) ([]Profile, error) {
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 	profiles := []Profile{}
 	err := c.Run(ctx, c.workDir, "", &profiles, "profile", "list")
 	return profiles, err
+}
+
+func (c *Client) confirmAuthorization(ctx context.Context, name string) error {
+	profiles, err := c.storedProfiles(ctx)
+	if err != nil {
+		return err
+	}
+	// 仅在授权完成且 CLI 返回有效用户后放行。
+	for _, profile := range profiles {
+		if profile.Name == name && profile.Ready() {
+			c.mu.Lock()
+			c.authorized[name] = true
+			c.mu.Unlock()
+			return nil
+		}
+	}
+	return errors.New("授权完成后未检测到有效账号，请重新授权")
 }
 
 func (c *Client) SelectProfile(ctx context.Context, name string, ready bool) (Profile, error) {
@@ -197,7 +269,7 @@ func (c *Client) ScopedEnvironment(dir, profile string) ([]string, error) {
 	if err := os.WriteFile(filepath.Join(shimDir, "lark-cli"), []byte(shim), 0700); err != nil {
 		return nil, err
 	}
-	env := append(os.Environ(), "PATH="+shimDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+	env := append(Environment(), "PATH="+shimDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"PLATFORM_LARK_BINARY="+filepath.ToSlash(binary), "PLATFORM_LARK_PROFILE="+profile, "GIT_TERMINAL_PROMPT=0",
 		"TMPDIR="+filepath.ToSlash(dir))
 	if zipBinary, err := exec.LookPath("zip"); err == nil {

@@ -86,6 +86,10 @@ func (s *AuthService) complete(authorization Authorization, deviceCode string) {
 	defer cancel()
 	err := s.client.Run(ctx, s.client.WorkDir(), authorization.profile, nil,
 		"auth", "login", "--device-code", deviceCode, "--json")
+	// 授权成功后校验账号，并记录本次启动的登录状态。
+	if err == nil {
+		err = s.client.confirmAuthorization(ctx, authorization.profile)
+	}
 	authorization.Status = "done"
 	if err != nil {
 		authorization.Status = "failed"

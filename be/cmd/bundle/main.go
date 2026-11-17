@@ -36,8 +36,8 @@ func bundle(source, output string) error {
 		if err != nil {
 			return err
 		}
-		// 启动包只包含普通文件，不附带系统元数据或链接。
-		if entry.IsDir() || entry.Name() == ".DS_Store" || entry.Type()&os.ModeSymlink != 0 {
+		// 保留缓存目录，不附带系统元数据、链接或根目录本身。
+		if path == source || entry.Name() == ".DS_Store" || entry.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
 		info, err := entry.Info()
@@ -54,9 +54,16 @@ func bundle(source, output string) error {
 		}
 		// Go 的 ZIP UTF-8 标志确保 Windows 正确识别中文名称。
 		header.Name, header.Method = filepath.ToSlash(name), zip.Store
+		if entry.IsDir() {
+			header.Name += "/"
+		}
 		target, err := writer.CreateHeader(header)
 		if err != nil {
 			return err
+		}
+		// 目录条目不包含文件数据。
+		if entry.IsDir() {
+			return nil
 		}
 		input, err := os.Open(path)
 		if err != nil {

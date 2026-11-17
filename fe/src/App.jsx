@@ -213,7 +213,7 @@ function AccountSetup({ cli, selected, setSelected, checking, error, refresh, on
     <section className="setup workspace">
       <div className="page-heading">
         <h1>连接飞书账号</h1>
-        <p>选择租户账号，访问该账号可见的妙搭应用。</p>
+        <p>平台启动后，请使用自己的飞书账号重新授权。</p>
       </div>
       <div className="setup-grid">
         <div className="setup-panel">

@@ -79,7 +79,7 @@ export default function EnvironmentSetup({ report, checking, error, onCheck, onC
       </ol>
       {(error || installError) && <p className="notice danger environment-notice" role="alert">{error || installError}</p>}
       {report && !report.supported && (
-        <p className="notice danger environment-notice" role="alert">当前仅提供 Mac（Apple Silicon / Intel）和 Windows x64 的离线安装包。</p>
+        <p className="notice danger environment-notice" role="alert">当前仅支持 Mac（Apple Silicon / Intel）和 Windows x64。</p>
       )}
       <div className="panel environment-panel" aria-busy={checking}>
         <div className="panel-header">
@@ -125,7 +125,10 @@ export default function EnvironmentSetup({ report, checking, error, onCheck, onC
         <div className="environment-actions">
           <div role="status">
             <strong>{busy ? '正在准备环境' : report?.ready ? '环境已就绪' : report ? `${missing} 项依赖需要准备` : '等待检测结果'}</strong>
-            <p className="muted">使用平台附带的离线安装包，已就绪的依赖将自动跳过。</p>
+            <p className="muted">按当前系统和架构下载，网络下载失败后尝试飞书文档，已就绪的依赖自动跳过。</p>
+            {report?.documentURL && (
+              <a href={report.documentURL} target="_blank" rel="noreferrer">打开下载文档</a>
+            )}
           </div>
           {report?.ready && !busy ? (
             <button className="button primary" disabled={checking} onClick={onContinue}>进入账号连接 <span aria-hidden="true">→</span></button>
@@ -164,6 +167,9 @@ export default function EnvironmentSetup({ report, checking, error, onCheck, onC
         </div>
       )}
       {report?.root && <p className="environment-install-location">安装目录 <span>{report.root}</span></p>}
+      {report?.packages && (
+        <p className="environment-install-location">下载缓存 <span>{report.packages}</span>；手动下载的安装包也可放入此目录后重试。</p>
+      )}
     </section>
   )
 }

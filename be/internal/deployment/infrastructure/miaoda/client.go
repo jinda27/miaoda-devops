@@ -138,7 +138,7 @@ func (c *Client) Request(
 	}
 
 	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Dir, cmd.WaitDelay = work, 5*time.Second
+	cmd.Dir, cmd.Env, cmd.WaitDelay = work, larkcli.Environment(), 5*time.Second
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdout, runErr := cmd.Output()

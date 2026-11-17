@@ -43,6 +43,8 @@ type Report struct {
 	Supported    bool          `json:"supported"`
 	Ready        bool          `json:"ready"`
 	Root         string        `json:"root"`
+	Packages     string        `json:"packages"`
+	DocumentURL  string        `json:"documentURL"`
 	Items        []Item        `json:"items"`
 	Installation *Installation `json:"installation,omitempty"`
 }

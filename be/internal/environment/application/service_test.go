@@ -135,3 +135,12 @@ func TestWindowsInstallPlanGroupsGitAndBash(t *testing.T) {
 		t.Fatalf("unexpected shared-package plan: %+v", plan)
 	}
 }
+
+func TestCLIInstallsBeforeOtherDownloadDependencies(t *testing.T) {
+	// 先准备 CLI，供后续网络失败时读取飞书附件。
+	report := newFake().Inspect(context.Background())
+	plan := installPlan(report)
+	if len(plan) != 2 || plan[0].ID != "lark-cli" || plan[1].ID != "node" {
+		t.Fatalf("CLI 没有优先安装：%+v", plan)
+	}
+}

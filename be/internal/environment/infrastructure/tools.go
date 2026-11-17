@@ -19,21 +19,26 @@ import (
 var versionPattern = regexp.MustCompile(`(?:^|[^\d])(\d+)\.(\d+)(?:\.(\d+))?`)
 
 type Toolset struct {
-	Root       string
-	Packages   string
-	Platform   string
-	Arch       string
-	Catalog    []Package
-	CatalogErr error
+	Root        string
+	Packages    string
+	Platform    string
+	Arch        string
+	Catalog     []Package
+	CatalogErr  error
+	DocumentURL string
+	Downloader  *Downloader
 }
 
 type Package struct {
-	Path      string `json:"path"`
-	Component string `json:"component"`
-	Version   string `json:"version"`
-	SHA256    string `json:"sha256"`
-	Platform  string `json:"platform"`
-	Optional  bool   `json:"optional"`
+	Path         string `json:"path"`
+	Component    string `json:"component"`
+	Version      string `json:"version"`
+	SHA256       string `json:"sha256"`
+	Platform     string `json:"platform"`
+	Optional     bool   `json:"optional"`
+	Source       string `json:"source"`
+	SourcePath   string `json:"source_path"`
+	SourceSHA256 string `json:"source_sha256"`
 }
 
 type definition struct {
@@ -73,7 +78,11 @@ func Configure(project, packages string) (*Toolset, error) {
 	if packages == "" {
 		packages = filepath.Join(project, "packages")
 	}
-	tools := NewToolset(root, packages, runtime.GOOS, runtime.GOARCH)
+	packages, err = filepath.Abs(packages)
+	if err != nil {
+		return nil, err
+	}
+	tools := NewToolset(root, packages, runtime.GOOS, nativeArchitecture())
 	paths := tools.SearchPaths()
 	// 搜索路径在启动时固定，安装完成后即可使用新文件。
 	paths = append(paths, filepath.SplitList(os.Getenv("PATH"))...)
@@ -87,8 +96,14 @@ func Configure(project, packages string) (*Toolset, error) {
 }
 
 func NewToolset(root, packages, platform, arch string) *Toolset {
-	tools := &Toolset{Root: root, Packages: packages, Platform: platform, Arch: arch}
-	tools.Catalog, tools.CatalogErr = readCatalog(filepath.Join(packages, "manifest.json"))
+	tools := &Toolset{Root: root, Packages: packages, Platform: platform, Arch: normalizeArchitecture(arch),
+		DocumentURL: InstallationDocumentURL}
+	tools.Catalog, tools.CatalogErr = embeddedCatalog()
+	// 旧离线分发包仍可提供自定义清单。
+	if _, err := os.Stat(filepath.Join(packages, "manifest.json")); err == nil {
+		tools.Catalog, tools.CatalogErr = readCatalog(filepath.Join(packages, "manifest.json"))
+	}
+	tools.Downloader = NewDownloader(packages)
 	return tools
 }
 
@@ -127,25 +142,22 @@ func (t *Toolset) Package(component string) (Package, error) {
 	for _, item := range t.Catalog {
 		if item.Component == component && !item.Optional &&
 			(item.Platform == t.packagePlatform() || item.Platform == "shared") {
-			path, err := safePath(t.Packages, item.Path)
-			if err != nil {
+			if _, err := safePath(t.Packages, item.Path); err != nil {
 				return Package{}, err
 			}
-			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
-				return item, nil
-			}
-			return Package{}, errors.New("本地安装包不存在，请补齐 packages 目录")
+			return item, nil
 		}
 	}
 	if t.CatalogErr != nil {
-		return Package{}, fmt.Errorf("无法读取本地安装包清单：%w", t.CatalogErr)
+		return Package{}, fmt.Errorf("无法读取安装包清单：%w", t.CatalogErr)
 	}
-	return Package{}, errors.New("当前平台没有此组件的离线安装包")
+	return Package{}, errors.New("当前平台没有此组件的安装包")
 }
 
 func (t *Toolset) Inspect(ctx context.Context) domain.Report {
 	report := domain.Report{Platform: t.Platform, Architecture: t.Arch, Supported: t.Supported(),
-		Root: t.Root, Ready: true, Items: make([]domain.Item, len(definitions))}
+		Root: t.Root, Packages: t.Packages, DocumentURL: t.DocumentURL,
+		Ready: true, Items: make([]domain.Item, len(definitions))}
 	var group sync.WaitGroup
 	// 各依赖并行检测，避免页面等待串行命令执行。
 	for index, def := range definitions {

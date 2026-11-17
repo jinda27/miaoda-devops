@@ -398,6 +398,25 @@ func newDDLTestClient(t *testing.T, script string) (*Client, string) {
 	return &Client{Lark: larkcli.NewClient(work)}, work
 }
 
+// 验证妙搭和 SQL 透传入口隔离外部凭证。
+func TestRequestsIgnoreExternalCredentials(t *testing.T) {
+	client, work := newDDLTestClient(t, `
+# 两个透传入口都不能使用工具注入的凭证。
+if printenv LARKSUITE_CLI_USER_ACCESS_TOKEN >/dev/null 2>&1 ||
+   printenv LARKSUITE_CLI_APP_ID >/dev/null 2>&1; then exit 1; fi
+printf '{"data":{"result":[]}}'
+`)
+	t.Setenv("LARKSUITE_CLI_USER_ACCESS_TOKEN", "external-test-token")
+	t.Setenv("LARKSUITE_CLI_APP_ID", "external-test-app")
+	ctx := context.Background()
+	if err := client.Request(ctx, "tenant", work, "GET", "/test", nil, nil, nil); err != nil {
+		t.Fatalf("妙搭接口未隔离外部凭证：%v", err)
+	}
+	if _, err := client.sparkSQL(ctx, "tenant", "app_test", "dev", "SELECT 1", work); err != nil {
+		t.Fatalf("SQL 接口未隔离外部凭证：%v", err)
+	}
+}
+
 // 验证并发请求独立读写响应文件且完成后清理文件。
 func TestSparkSQLConcurrentResponses(t *testing.T) {
 	client, work := newDDLTestClient(t, `

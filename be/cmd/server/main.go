@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"app-deployment-platform/internal/deployment/application"
+	"app-deployment-platform/internal/deployment/infrastructure/larkcli"
 	httpapi "app-deployment-platform/internal/deployment/interfaces/http"
 	environment "app-deployment-platform/internal/environment/application"
 	"app-deployment-platform/internal/environment/infrastructure"
 )
 
 func main() {
+	larkcli.ClearInheritedCredentials()
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	projectDir, err := projectDirectory()
 	if err != nil {
