@@ -17,6 +17,7 @@ if [[ -z "$go_bin" ]] || ! command -v node >/dev/null || ! command -v npm >/dev/
   exit 1
 fi
 
+# 按当前 Mac 架构构建后端。
 case "$(uname -m)" in
   arm64) arch=arm64 ;;
   x86_64) arch=amd64 ;;
@@ -28,7 +29,7 @@ if [[ ! -d "$root/fe/node_modules" ]]; then
 fi
 npm --prefix "$root/fe" run build
 
-out="$root/dist"
+out="$root/packages/mac"
 name="妙搭部署平台"
 mkdir -p "$out"
 stage="$(mktemp -d "$out/.macos-app.XXXXXXXX")"

@@ -32,7 +32,7 @@ echo "构建前端..."
 npm --prefix "$ROOT_DIR/fe" run build
 
 source "$ROOT_DIR/scripts/port-guard.sh"
-release_port_after_confirmation "$PORT" confirm_port_in_terminal || {
+release_port "$PORT" confirm_port_in_terminal || {
   result=$?
   if [[ "$result" -eq 2 ]]; then
     echo "已取消启动。"

@@ -6,8 +6,8 @@
 
 推荐使用预编译启动程序，运行无需预装 Node.js、npm 或 Go：
 
-- Mac：双击 `dist/妙搭部署平台.app`。
-- Windows x64：完整解压 `packages/windows/x64/` 下的便携安装包，双击 `妙搭部署平台.exe`。
+- Mac（Apple 芯片）：解压 `packages/妙搭部署平台_mac_arm64_yyyyMMdd.zip`，双击 `妙搭部署平台.app`。
+- Windows x64：解压 `packages/妙搭部署平台_win_64_yyyyMMdd.zip`，双击 `妙搭部署平台.exe`。
 
 首次启动会自动检测 Node.js/npm、lark-cli、Git、Bash、zip 和打包组件。检测以命令能否正常运行为准，不强制限定版本；缺少工具或命令不可用时进入登录前的**初始环境**页面，点击「一键安装」按本机操作系统和原生架构下载安装包。优先使用官方网络地址，连接失败、下载中断或校验失败后改从飞书文档附件下载。安装显示进度，失败可重试；安装后自动复检，通过后进入账号连接。侧边栏可随时重新打开初始环境。
 
@@ -36,9 +36,9 @@ scripts\start.bat
 
 ### macOS 双击启动
 
-在 macOS 上运行 `./scripts/build-macos-app.sh`，然后在 Finder 中双击项目内的 `dist/妙搭部署平台.app`。应用包含已构建的前端和后端，启动后会用默认浏览器打开工作台。端口被占用时，弹窗会列出进程名称和 PID。选择「结束进程并启动」后，应用会等待端口释放再启动。选择「取消」会保留原进程。
+在 macOS 上运行 `./scripts/build-macos-app.sh`，生成当前架构的 `packages/mac/妙搭部署平台.app`，在 Finder 中双击即可启动。应用包含已构建的前端和后端，启动后会用默认浏览器打开工作台。端口被占用时，启动器会自动向监听进程发送 `SIGTERM`，等端口释放后在原端口启动新服务。端口未释放时会报错并停止启动。
 
-应用位于项目 `dist/` 时，任务记录和日志继续使用项目的 `data/` 和 `logs/`。单独复制应用到其他目录后，数据保存在 `~/Library/Application Support/MiaodaDeploymentPlatform/workspace`。修改代码后可重新运行构建脚本生成当前 Mac 架构的应用。
+应用位于项目 `packages/mac/` 时，任务记录和日志继续使用项目的 `data/` 和 `logs/`。单独复制应用到其他目录后，数据保存在 `~/Library/Application Support/MiaodaDeploymentPlatform/workspace`。
 
 ### Windows 启动包构建
 

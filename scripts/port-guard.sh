@@ -35,8 +35,8 @@ confirm_port_in_terminal() {
   read -r answer && [[ "$answer" == [yY] || "$answer" == [yY][eE][sS] ]]
 }
 
-release_port_after_confirmation() {
-  local port="$1" confirm="$2" pids original message current current_processes pid attempt
+release_port() {
+  local port="$1" confirm="${2:-}" pids original message current current_processes pid attempt
   if [[ ! "$port" =~ ^[1-9][0-9]{0,4}$ ]] || [[ "$port" -gt 65535 ]]; then
     printf '%s\n' '端口必须是 1 至 65535 的整数。' >&2
     return 1
@@ -44,17 +44,21 @@ release_port_after_confirmation() {
   pids="$(port_listeners "$port")" || return 1
   [[ -n "$pids" ]] || return 0
   original="$(port_processes "$pids")" || {
-    printf '%s\n' "端口 $port 的占用已变化，请重新启动确认。" >&2
+    printf '%s\n' "端口 $port 的占用已变化，请重新启动。" >&2
     return 1
   }
-  message="$(printf '端口 %s 由以下进程占用：\n\n%s\n\n结束进程可能中断正在执行的任务。' "$port" "$original")"
-  "$confirm" "$message" || return 2
+  # 终端启动可在结束进程前要求确认。
+  if [[ -n "$confirm" ]]; then
+    message="$(printf '端口 %s 由以下进程占用：\n\n%s\n\n结束进程可能中断正在执行的任务。' "$port" "$original")"
+    "$confirm" "$message" || return 2
+  fi
 
+  # 重新核对监听进程，避免结束后来占用端口的进程。
   current="$(port_listeners "$port")" || return 1
   [[ -n "$current" ]] || return 0
   if [[ "$current" != "$pids" ]] || ! current_processes="$(port_processes "$current")" ||
       [[ "$current_processes" != "$original" ]]; then
-    printf '%s\n' "端口 $port 的占用已变化，请重新启动确认。" >&2
+    printf '%s\n' "端口 $port 的占用已变化，请重新启动。" >&2
     return 1
   fi
   for pid in $pids; do
