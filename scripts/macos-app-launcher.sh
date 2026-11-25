@@ -29,9 +29,12 @@ if [[ ! -r "$resources/web/index.html" || ! -x "$bin_dir/server" ]]; then
   show_error "应用文件不完整，请重新复制完整的应用。"
 fi
 
-# 从 Finder 启动时补充终端安装的 lark-cli、Node.js 和 Git 的搜索路径。
-build_path="$(cat "$resources/build-path")"
-export PATH="$build_path:$HOME/.local/bin/node/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.volta/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# Finder 启动也优先使用随包依赖，避免依赖构建机的路径。
+runtime="$resources/runtime"
+export PATH="$runtime/cli:$runtime/node/bin:$runtime/git/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export MIAODA_TOOLS_DIR="$runtime" MIAODA_LARK_CLI="$runtime/cli/lark-cli" MIAODA_ASSEMBLE_SCRIPT=""
+# 便携 Git 必须显式定位 HTTPS 辅助程序和初始化模板。
+export GIT_EXEC_PATH="$runtime/git/libexec/git-core" GIT_TEMPLATE_DIR="$runtime/git/share/git-core/templates"
 export PORT="${PORT:-18080}"
 source "$resources/port-guard.sh"
 

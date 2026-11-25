@@ -9,7 +9,7 @@
 - Mac（Apple 芯片）：解压 `packages/妙搭部署平台_mac_arm64_yyyyMMdd.zip`，双击 `妙搭部署平台.app`。
 - Windows x64：解压 `packages/妙搭部署平台_win_64_yyyyMMdd.zip`，双击 `妙搭部署平台.exe`。
 
-首次启动会自动检测 Node.js/npm、lark-cli、Git、Bash、zip 和打包组件。检测以命令能否正常运行为准，不强制限定版本；缺少工具或命令不可用时进入登录前的**初始环境**页面，点击「一键安装」按本机操作系统和原生架构下载安装包。优先使用官方网络地址，连接失败、下载中断或校验失败后改从飞书文档附件下载。安装显示进度，失败可重试；安装后自动复检，通过后进入账号连接。侧边栏可随时重新打开初始环境。
+Mac 和 Windows 便携包均内置 Node.js/npm、lark-cli、Git 和打包组件，无需首次下载安装这些工具；Mac 的 Bash、zip 和 Perl 由系统提供。首次启动检测通过后进入账号连接，飞书配置、授权和妙搭操作仍需联网。普通版或源码环境缺少工具时，可在**初始环境**页面点击「一键安装」，按清单下载安装并复检。
 
 下载包缓存到项目的 `packages/`，校验 SHA256 后安装到当前用户的专用目录，已下载且校验通过的包会直接复用。平台启动时自动加入自身命令搜索路径。成品无需安装 Go；小型全栈打包组件内置于服务。版本、来源和校验值见 [`catalog.json`](be/internal/environment/infrastructure/catalog.json)。
 
@@ -36,7 +36,7 @@ scripts\start.bat
 
 ### macOS 双击启动
 
-在 macOS 上运行 `./scripts/build-macos-app.sh`，生成当前架构的 `packages/mac/妙搭部署平台.app`，在 Finder 中双击即可启动。应用包含已构建的前端和后端，启动后会用默认浏览器打开工作台。端口被占用时，启动器会自动向监听进程发送 `SIGTERM`，等端口释放后在原端口启动新服务。端口未释放时会报错并停止启动。
+在 macOS 上运行 `./scripts/build-macos-app.sh`，生成当前架构的 `packages/mac/妙搭部署平台.app`。构建时按清单下载并校验官方运行依赖，全部放入 `.app`，在 Finder 中双击即可启动。应用包含已构建的前端和后端，启动后会用默认浏览器打开工作台。端口被占用时，启动器会自动向监听进程发送 `SIGTERM`，等端口释放后在原端口启动新服务。端口未释放时会报错并停止启动。
 
 应用位于项目 `packages/mac/` 时，任务记录和日志继续使用项目的 `data/` 和 `logs/`。单独复制应用到其他目录后，数据保存在 `~/Library/Application Support/MiaodaDeploymentPlatform/workspace`。
 

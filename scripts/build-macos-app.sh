@@ -32,7 +32,7 @@ npm --prefix "$root/fe" run build
 out="$root/packages/mac"
 name="妙搭部署平台"
 mkdir -p "$out"
-stage="$(mktemp -d "$out/.macos-app.XXXXXXXX")"
+stage="$(mktemp -d "${TMPDIR:-/tmp}/miaoda-macos-app.XXXXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 bundle="$stage/$name.app"
 contents="$bundle/Contents"
@@ -40,7 +40,8 @@ mkdir -p "$contents/MacOS" "$contents/Resources/web"
 install -m 0755 "$root/scripts/macos-app-launcher.sh" "$contents/MacOS/launcher"
 install -m 0644 "$root/scripts/port-guard.sh" "$contents/Resources/port-guard.sh"
 cp -R "$root/fe/dist/." "$contents/Resources/web/"
-printf '%s\n' "$PATH" > "$contents/Resources/build-path"
+# 依赖由清单下载并核验，随应用分发，无需首次安装。
+node "$root/scripts/prepare-macos-runtime.mjs" "$contents/Resources/runtime"
 
 # 安装清单及小型打包组件由服务内置，构建无需预存安装包。
 CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" "$go_bin" -C "$root/be" \
@@ -72,6 +73,13 @@ cat > "$contents/Info.plist" <<'PLIST'
 PLIST
 
 /usr/bin/plutil -lint "$contents/Info.plist"
+# 对所有随包的原生依赖签名后再签整个应用。
+while IFS= read -r -d '' binary; do
+  # 脚本和数据文件不执行原生签名。
+  if [[ "$(/usr/bin/file -b "$binary")" == *Mach-O* ]]; then
+    /usr/bin/codesign --force --sign - "$binary"
+  fi
+done < <(/usr/bin/find "$contents/Resources/runtime" -type f -print0)
 /usr/bin/codesign --force --sign - "$contents/MacOS/server"
 /usr/bin/codesign --force --sign - "$bundle"
 /usr/bin/codesign --verify --deep --strict "$bundle"
