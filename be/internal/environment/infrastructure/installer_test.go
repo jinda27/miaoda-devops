@@ -14,6 +14,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"app-deployment-platform/internal/environment/domain"
 )
 
 func writeTarFixture(t *testing.T, filename string, entries []*tar.Header, contents []string) {
@@ -120,6 +122,30 @@ func TestInstallChecksumAndRollbackPreserveExisting(t *testing.T) {
 				t.Fatalf("temporary directories not cleaned: %v", temporary)
 			}
 		})
+	}
+}
+
+func TestManagedWindowsAssembleUpgrade(t *testing.T) {
+	tools := NewToolset(t.TempDir(), t.TempDir(), "windows", "amd64")
+	t.Setenv("MIAODA_ASSEMBLE_SCRIPT", "")
+	install := func() {
+		t.Helper()
+		if err := tools.Install(context.Background(), "assemble", func(string, int) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	install()
+	// 将已安装脚本替换为旧版标记，模拟升级前的状态。
+	path := filepath.Join(tools.Root, "assemble", "scripts", "generate-schema-ddl.sh")
+	if err := os.WriteFile(path, []byte("#!/usr/bin/env bash\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if item := tools.inspectAssemble(domain.Item{}); item.Status != domain.VersionMismatch {
+		t.Fatalf("未识别旧 Windows 打包组件：%+v", item)
+	}
+	install()
+	if item := tools.inspectAssemble(domain.Item{}); item.Status != domain.Ready {
+		t.Fatalf("内置打包组件升级失败：%+v", item)
 	}
 }
 

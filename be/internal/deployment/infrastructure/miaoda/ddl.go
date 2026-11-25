@@ -851,11 +851,13 @@ func (s *Client) sparkSQL(
 	params, _ := json.Marshal(map[string]string{"env": env})
 	payload, _ := json.Marshal(map[string]string{"sql": sql})
 	args := []string{"api", "POST", "/open-apis/spark/v1/apps/" + appID + "/sql_commands",
-		"--as", "user", "--params", string(params), "--data", string(payload), "--output", resultFile}
+		"--as", "user", "--params", string(params), "--data", "-", "--output", filepath.Base(resultFile)}
 	if profile != "" {
 		args = append(args, "--profile="+profile)
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
+	// SQL 经 stdin 传递，避免 JSON 转义撑大 Windows 命令行。
+	cmd.Stdin = bytes.NewReader(payload)
 	cmd.Dir, cmd.Env, cmd.WaitDelay = work, larkcli.Environment(), 5*time.Second
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -864,14 +866,7 @@ func (s *Client) sparkSQL(
 		return nil, errors.New("SQL 请求超时或已中断")
 	}
 	if runErr != nil {
-		message := strings.TrimSpace(stderr.String())
-		if message == "" {
-			message = strings.TrimSpace(string(output))
-		}
-		if message == "" {
-			message = "飞书 CLI 执行失败"
-		}
-		return nil, errors.New(clipText(message, 600))
+		return nil, apiCommandError(runErr, stderr.Bytes(), output)
 	}
 	// 二进制响应会落到 --output 指定的文件
 	raw := output

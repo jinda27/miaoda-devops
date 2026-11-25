@@ -116,7 +116,7 @@ func (c *Client) Request(
 	}
 	defer os.Remove(resultPath)
 
-	args := []string{"api", method, path, "--as", "user", "--output", resultPath}
+	args := []string{"api", method, path, "--as", "user", "--output", filepath.Base(resultPath)}
 	// 请求参数存在时序列化为 JSON。
 	if params != nil {
 		raw, marshalErr := json.Marshal(params)
@@ -125,19 +125,24 @@ func (c *Client) Request(
 		}
 		args = append(args, "--params", string(raw))
 	}
-	// 请求体存在时序列化为 JSON。
+	var payload []byte
+	// 大请求体和 SQL 一样通过 stdin 传递。
 	if body != nil {
 		raw, marshalErr := json.Marshal(body)
 		if marshalErr != nil {
 			return errors.New("妙搭接口请求体无效")
 		}
-		args = append(args, "--data", string(raw))
+		payload = raw
+		args = append(args, "--data", "-")
 	}
 	if profile != "" {
 		args = append(args, "--profile="+profile)
 	}
 
 	cmd := exec.CommandContext(ctx, binary, args...)
+	if payload != nil {
+		cmd.Stdin = bytes.NewReader(payload)
+	}
 	cmd.Dir, cmd.Env, cmd.WaitDelay = work, larkcli.Environment(), 5*time.Second
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -155,7 +160,7 @@ func (c *Client) Request(
 	}
 	responseBytes = len(raw)
 	if runErr != nil && len(raw) == 0 {
-		return errors.New("妙搭接口调用失败")
+		return apiCommandError(runErr, stderr.Bytes(), stdout)
 	}
 
 	var envelope struct {
@@ -170,6 +175,10 @@ func (c *Client) Request(
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
+		// 进程失败时保留原始错误及其输出。
+		if runErr != nil {
+			return apiCommandError(runErr, stderr.Bytes(), raw)
+		}
 		message := strings.TrimSpace(stderr.String())
 		if message == "" {
 			message = string(raw)
@@ -193,7 +202,7 @@ func (c *Client) Request(
 		return errors.New(message)
 	}
 	if runErr != nil {
-		return errors.New("妙搭接口调用失败：" + clipText(strings.TrimSpace(stderr.String()), 600))
+		return apiCommandError(runErr, stderr.Bytes(), raw)
 	}
 	if dest != nil && len(envelope.Data) > 0 {
 		if err := json.Unmarshal(envelope.Data, dest); err != nil {
@@ -201,6 +210,18 @@ func (c *Client) Request(
 		}
 	}
 	return nil
+}
+
+func apiCommandError(runErr error, stderr, stdout []byte) error {
+	// 有输出时保留 CLI 诊断；启动失败时保留操作系统错误。
+	detail := bytes.TrimSpace(stderr)
+	if len(detail) == 0 {
+		detail = bytes.TrimSpace(stdout)
+	}
+	if len(detail) > 0 {
+		return fmt.Errorf("飞书 CLI 执行失败：%s（%w）", clipText(string(detail), 600), runErr)
+	}
+	return fmt.Errorf("飞书 CLI 执行失败：%w", runErr)
 }
 
 // sparkPath 拼接应用级接口路径。

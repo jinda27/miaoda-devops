@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -388,6 +389,9 @@ func TestRunDDLStageFailure(t *testing.T) {
 // newDDLTestClient 使用本地 CLI 替身，禁止真实调用平台。
 func newDDLTestClient(t *testing.T, script string) (*Client, string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("需要 Unix Shell 替身")
+	}
 	work := t.TempDir()
 	binary := filepath.Join(work, "lark-cli")
 	// 写入可执行的请求替身。
@@ -417,12 +421,57 @@ printf '{"data":{"result":[]}}'
 	}
 }
 
+func TestLongRequestBodiesUseStdin(t *testing.T) {
+	client, work := newDDLTestClient(t, `
+path="$3"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --data) test "$2" = -; shift 2 ;;
+    --output) output="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+case "$output" in /*|*\\*) exit 1 ;; esac
+body="$(cat)"
+case "$path" in
+  */sql_commands) printf '{"ok":true,"data":{"result":[[%s]]}}' "$body" > "$output" ;;
+  *) printf '{"ok":true,"data":%s}' "$body" ;;
+esac
+`)
+	// 以多行、引号、反斜线和中文覆盖 Windows 的转义膨胀场景。
+	sql := "SELECT $ddl$\r\n" + strings.Repeat(`\"中文 😀 "quoted"`, 4096) + "\r\n$ddl$;\n"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rows, err := client.sparkSQL(ctx, "tenant", "app_test", "dev", sql, work)
+	if err != nil || len(rows) != 1 || rows[0]["sql"] != sql {
+		t.Fatalf("长 SQL 未通过 stdin 完整传输：rows=%d err=%v", len(rows), err)
+	}
+	var dest map[string]string
+	if err := client.Request(ctx, "tenant", work, "POST", "/test", nil, map[string]string{"body": sql}, &dest); err != nil || dest["body"] != sql {
+		t.Fatalf("长请求体未通过 stdin 完整传输：%v", err)
+	}
+}
+
+func TestSparkSQLKeepsProcessStartError(t *testing.T) {
+	client, work := newDDLTestClient(t, "")
+	// 可执行文件存在，但启动时找不到脚本解释器。
+	binary := filepath.Join(work, "lark-cli")
+	if err := os.WriteFile(binary, []byte("#!/no-such-miaoda-test-interpreter\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := client.sparkSQL(context.Background(), "tenant", "app_test", "dev", "SELECT 1", work)
+	var cause *os.PathError
+	if !errors.As(err, &cause) || !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("未保留系统启动异常：%v", err)
+	}
+}
+
 // 验证并发请求独立读写响应文件且完成后清理文件。
 func TestSparkSQLConcurrentResponses(t *testing.T) {
 	client, work := newDDLTestClient(t, `
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --data) data="$2"; shift 2 ;;
+    --data) test "$2" = -; data="$(cat)"; shift 2 ;;
     --output) output="$2"; shift 2 ;;
     *) shift ;;
   esac
@@ -463,7 +512,10 @@ printf '{"data":{"result":[]}}'
 			t.Fatalf("并发请求共用响应文件：%s", path)
 		}
 		unique[path] = true
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
+		if filepath.Base(path) != path {
+			t.Fatalf("CLI 输出必须使用相对路径：%s", path)
+		}
+		if _, err := os.Stat(filepath.Join(work, path)); !os.IsNotExist(err) {
 			t.Fatalf("响应文件未清理：%s err=%v", path, err)
 		}
 	}
@@ -480,7 +532,7 @@ func TestRunDDLStageOrder(t *testing.T) {
 			client, work := newDDLTestClient(t, `
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --data) data="$2"; shift 2 ;;
+    --data) test "$2" = -; data="$(cat)"; shift 2 ;;
     --output) output="$2"; shift 2 ;;
     *) shift ;;
   esac
@@ -547,7 +599,7 @@ CREATE FUNCTION after_insert() RETURNS int LANGUAGE sql AS $$ SELECT 1; $$;`,
 			}
 			// 失败必须包含文件名，且后置对象及数据阶段未执行。
 			if fail {
-				if err == nil || !strings.Contains(err.Error(), "20_tables_001.sql") {
+				if err == nil || !strings.Contains(err.Error(), "20_tables_001.sql") || !strings.Contains(err.Error(), "建表失败") {
 					t.Fatalf("未报告建表文件失败：%v", err)
 				}
 				for _, name := range []string{"foreign-keys.ready", "post.ready", "inserts.ready"} {

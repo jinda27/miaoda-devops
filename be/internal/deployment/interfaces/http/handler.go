@@ -2,10 +2,8 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -16,25 +14,21 @@ import (
 	"app-deployment-platform/internal/deployment/application"
 	"app-deployment-platform/internal/deployment/domain"
 	"app-deployment-platform/internal/deployment/infrastructure/artifact"
+	"app-deployment-platform/internal/startup"
 )
 
 type Handler struct {
-	service *application.Service
+	service  *application.Service
+	identity startup.Health
 }
 
-func NewHandler(service *application.Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service *application.Service, identity startup.Health) *Handler {
+	return &Handler{service: service, identity: identity}
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	if err := json.NewEncoder(w).Encode(struct {
-		Status  string `json:"status"`
-		Service string `json:"service"`
-	}{Status: "ok", Service: "miaoda-deployment-platform"}); err != nil {
-		log.Printf("写入健康检查响应失败：%v", err)
-	}
+	writeJSON(w, 200, h.identity)
 }
 
 func (h *Handler) cliStatus(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +66,76 @@ func (h *Handler) loginStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, authorization)
+}
+
+func (h *Handler) refreshLogin(w http.ResponseWriter, r *http.Request) {
+	var input profileRequest
+	if err := readJSON(w, r, &input); err != nil {
+		failJSON(w, 400, err)
+		return
+	}
+	authorization, status, err := h.service.Auth.Refresh(r.Context(), r.PathValue("id"), input.Profile)
+	if err != nil {
+		failJSON(w, status, err)
+		return
+	}
+	writeJSON(w, status, authorization)
+}
+
+func (h *Handler) createTenant(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Name string `json:"name"`
+	}
+	if err := readJSON(w, r, &input); err != nil {
+		failJSON(w, 400, err)
+		return
+	}
+	task, status, err := h.service.Config.Begin(r.Context(), input.Name)
+	if err != nil {
+		failJSON(w, status, err)
+		return
+	}
+	writeJSON(w, status, task)
+}
+
+func (h *Handler) currentTenant(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, 200, h.service.Config.Current())
+}
+
+func (h *Handler) initializeTenant(w http.ResponseWriter, r *http.Request) {
+	task, status, err := h.service.Config.Initialize(r.Context())
+	if err != nil {
+		failJSON(w, status, err)
+		return
+	}
+	writeJSON(w, status, task)
+}
+
+func (h *Handler) tenantStatus(w http.ResponseWriter, r *http.Request) {
+	task, err := h.service.Config.Status(r.PathValue("id"))
+	if err != nil {
+		failJSON(w, 404, err)
+		return
+	}
+	writeJSON(w, 200, task)
+}
+
+func (h *Handler) refreshTenant(w http.ResponseWriter, r *http.Request) {
+	task, status, err := h.service.Config.Refresh(r.Context(), r.PathValue("id"))
+	if err != nil {
+		failJSON(w, status, err)
+		return
+	}
+	writeJSON(w, status, task)
+}
+
+func (h *Handler) cancelTenant(w http.ResponseWriter, r *http.Request) {
+	task, err := h.service.Config.Cancel(r.PathValue("id"))
+	if err != nil {
+		failJSON(w, 404, err)
+		return
+	}
+	writeJSON(w, 200, task)
 }
 
 func (h *Handler) apps(w http.ResponseWriter, r *http.Request) {

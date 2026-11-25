@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api.js'
 import Workspace from './Workspace.jsx'
 import EnvironmentSetup from './EnvironmentSetup.jsx'
+import TenantSetup from './TenantSetup.jsx'
+import { listenForTask } from './taskPolling.js'
 
 const pages = [
   { id: 'package', label: '应用打包', icon: '↓' },
@@ -60,6 +62,15 @@ export default function App() {
     } finally {
       setChecking(false)
     }
+  }, [])
+
+  const applyConfirmedProfile = useCallback((account) => {
+    setCLI((current) => {
+      if (!current) return current
+      const profiles = current.profiles.filter((profile) => profile.name !== account.name)
+      return { ...current, profiles: [...profiles, account] }
+    })
+    setSelected(account.name)
   }, [])
 
   useEffect(() => { void refreshEnvironment() }, [refreshEnvironment])
@@ -141,7 +152,7 @@ export default function App() {
             <Workspace key={entered + ':' + page} profile={account} page={page} onAccount={switchAccount} />
           ) : (
             <AccountSetup cli={cli} selected={selected} setSelected={setSelected} checking={checking}
-              error={error} refresh={refresh} onEnter={enter} />
+              error={error} refresh={refresh} onConfirmAccount={applyConfirmedProfile} onEnter={enter} />
           )}
         </main>
       </div>
@@ -149,52 +160,57 @@ export default function App() {
   )
 }
 
-function AccountSetup({ cli, selected, setSelected, checking, error, refresh, onEnter }) {
+function AccountSetup({ cli, selected, setSelected, checking, error, refresh, onConfirmAccount, onEnter }) {
   const [auth, setAuth] = useState(null)
   const [authorizing, setAuthorizing] = useState(false)
+  const [refreshingQR, setRefreshingQR] = useState(false)
   const [authError, setAuthError] = useState('')
+  const [tenantBusy, setTenantBusy] = useState(false)
   const profile = cli?.profiles.find(({ name }) => name === selected)
+  const { id: authID, status: authStatus, profile: authProfile } = auth || {}
 
   useEffect(() => {
-    if (auth?.status !== 'pending') return
-    const controller = new AbortController()
-    let timer
-    async function poll() {
+    // 刷新时暂停旧任务轮询，防止旧响应盖掉新二维码。
+    if (refreshingQR || !['pending', 'done'].includes(authStatus)) return
+    return listenForTask(async (signal) => {
       try {
-        const result = await api('auth/' + auth.id, {
-          params: { profile: auth.profile }, signal: controller.signal,
+        const result = await api('auth/' + authID, {
+          params: { profile: authProfile }, signal,
         })
-        if (controller.signal.aborted) return
-        if (result.status === 'pending') {
-          timer = setTimeout(poll, 2500)
+        if (signal.aborted) return
+        if (result.status === 'pending') return 2000
+        if (result.status !== 'done') {
+          setAuth({ ...result, profile: authProfile })
+          setAuthError(result.message || '飞书授权未完成，请刷新二维码重试。')
           return
         }
-        if (result.status === 'failed') {
+        // 完成状态一到即清除二维码，使用服务刚核实的账号进入工作台。
+        if (profileReady(result.account) && result.account.name === authProfile) {
           setAuth(null)
-          setAuthError(result.message)
+          onConfirmAccount(result.account)
+          onEnter(authProfile)
           return
         }
         const next = await refresh()
-        if (controller.signal.aborted) return
+        if (signal.aborted) return
         setAuth(null)
-        if (profileReady(next?.profiles.find(({ name }) => name === auth.profile))) {
-          onEnter(auth.profile)
+        if (profileReady(next?.profiles.find(({ name }) => name === authProfile))) {
+          onEnter(authProfile)
         } else {
           setAuthError('授权完成后未检测到有效账号，请刷新账号状态。')
         }
       } catch (err) {
-        if (!controller.signal.aborted) {
-          setAuth(null)
+        if (!signal.aborted) {
           setAuthError(err.message)
+          if (err.status === 404) {
+            setAuth((current) => current?.id === authID ? { ...current, status: 'expired', url: '', qr: '' } : current)
+          } else {
+            return 3000
+          }
         }
       }
-    }
-    timer = setTimeout(poll, 1000)
-    return () => {
-      controller.abort()
-      clearTimeout(timer)
-    }
-  }, [auth, refresh, onEnter])
+    })
+  }, [authID, authStatus, authProfile, refreshingQR, refresh, onConfirmAccount, onEnter])
 
   async function beginAuthorization() {
     setAuthError('')
@@ -208,7 +224,30 @@ function AccountSetup({ cli, selected, setSelected, checking, error, refresh, on
     }
   }
 
-  const requiresSetup = cli?.installed && !cli.profiles.length
+  async function refreshAuthorizationQR() {
+    setAuthError('')
+    setRefreshingQR(true)
+    try {
+      const data = { profile: auth.profile }
+      let result
+      try {
+        result = await api('auth/' + auth.id + '/refresh', { data })
+      } catch (err) {
+        // 本地服务重启后旧任务不存在，重新发起登录即可。
+        if (err.status !== 404) throw err
+        result = await api('auth', { data })
+      }
+      setAuth({ ...result, profile: auth.profile })
+    } catch (err) {
+      setAuth((current) => ({ ...current, status: 'expired', url: '', qr: '' }))
+      setAuthError(err.message)
+    } finally {
+      setRefreshingQR(false)
+    }
+  }
+
+  // 读取失败不能视为首次使用，避免误创建配置。
+  const requiresSetup = cli?.installed && !cli.message && !cli.profiles.length
   return (
     <section className="setup workspace">
       <div className="page-heading">
@@ -231,21 +270,20 @@ function AccountSetup({ cli, selected, setSelected, checking, error, refresh, on
             </>
           )}
           {cli?.installed && !cli.message && <p className="muted">已发现 {cli.profiles.length} 个租户配置。</p>}
-          <button className="button secondary" onClick={refresh} disabled={checking}>重新检测</button>
+          {(error || cli?.message || (cli && !cli.installed)) && (
+            <button className="button secondary" onClick={refresh} disabled={checking}>重新检测</button>
+          )}
         </div>
         <div className="setup-panel">
-          <div className="section-heading"><h2>租户账号</h2></div>
-          {requiresSetup ? (
-            <>
-              <p className="muted">在{cli.platform === 'windows' ? ' PowerShell ' : '终端'}添加飞书配置后，点击重新检测。</p>
-              <pre>{cli.platform === 'windows' ? '& ' : ''}"{cli.binary || 'lark-cli'}" config init --name my-tenant</pre>
-            </>
-          ) : cli?.installed ? (
+          <TenantSetup installed={cli?.installed} firstRun={requiresSetup}
+            disabled={checking || !!error || !!cli?.message || authorizing || !!auth}
+            refresh={refresh} setSelected={setSelected} onConfirmAccount={onConfirmAccount} onBusyChange={setTenantBusy} />
+          {!!cli?.profiles.length && (
             <div className="account-list" role="radiogroup" aria-label="租户账号">
               {cli.profiles.map((item) => (
                 <label className="account-row" key={item.name}>
                   <input type="radio" name="profile" value={item.name} checked={selected === item.name}
-                    disabled={authorizing} onChange={() => { setSelected(item.name); setAuth(null); setAuthError('') }} />
+                    disabled={authorizing || refreshingQR || tenantBusy} onChange={() => { setSelected(item.name); setAuth(null); setAuthError('') }} />
                   <span className="avatar" aria-hidden="true">{(item.user || item.name).slice(0, 1)}</span>
                   <span className="account-info"><strong>{item.name}</strong><small>{item.user || (item.brand === 'lark' ? 'Lark' : '飞书')}</small></span>
                   <span className={'pill ' + (profileReady(item) ? 'success' : 'pending')}>
@@ -254,28 +292,35 @@ function AccountSetup({ cli, selected, setSelected, checking, error, refresh, on
                 </label>
               ))}
             </div>
-          ) : <p className="muted">安装 lark-cli 后即可选择租户账号。</p>}
+          )}
           {authError && <p className="notice danger" role="alert">{authError}</p>}
           {auth && (
             <div className="auth-details" role="status">
-              <a href={auth.url} target="_blank" rel="noreferrer">打开飞书授权页面</a>
-              {auth.qr && <img src={auth.qr} width="144" height="144" alt="飞书授权二维码" />}
-              <span className="muted">请使用所选租户账号完成授权。</span>
+              {!refreshingQR && auth.url && <>
+                <a href={auth.url} target="_blank" rel="noreferrer">打开飞书授权页面</a>
+                {auth.qr && <img src={auth.qr} width="144" height="144" alt="飞书授权二维码" />}
+                <span className="muted">请使用所选租户账号完成授权。</span>
+              </>}
+              {auth.status !== 'done' && (
+                <button className="button secondary" onClick={refreshAuthorizationQR} disabled={refreshingQR}>
+                  {refreshingQR ? '正在刷新…' : '刷新二维码'}
+                </button>
+              )}
             </div>
           )}
           {profile?.error?.subtype === 'storage' && (
             <p className="notice danger">无法读取钥匙串凭据。请在解锁后的系统终端启动平台，再重新检测。</p>
           )}
-          <div className="button-row">
+          {profile && <div className="button-row">
             {profileReady(profile) ? (
-              <button className="button primary" disabled={checking} onClick={() => onEnter(selected)}>进入工作台</button>
-            ) : (
-              <button className="button primary" disabled={!profile || checking || authorizing || !!auth || profile.error?.subtype === 'storage'}
-                onClick={beginAuthorization}>{authorizing ? '正在发起…' : auth ? '等待飞书授权…' : '登录所选账号'}</button>
+              <button className="button primary" disabled={checking || tenantBusy} onClick={() => onEnter(selected)}>进入工作台</button>
+            ) : !auth && (
+              <button className="button primary" disabled={checking || authorizing || tenantBusy || profile.error?.subtype === 'storage'}
+                onClick={beginAuthorization}>{authorizing ? '正在发起…' : '登录飞书'}</button>
             )}
-            {profileReady(profile) && !auth && <button className="button secondary" disabled={authorizing}
+            {profileReady(profile) && !auth && <button className="button secondary" disabled={authorizing || tenantBusy}
               onClick={beginAuthorization}>{authorizing ? '正在发起…' : '重新授权'}</button>}
-          </div>
+          </div>}
         </div>
       </div>
     </section>

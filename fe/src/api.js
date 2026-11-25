@@ -16,6 +16,11 @@ export async function api(path, { params, data, signal } = {}) {
   }
   const response = await fetch(apiURL(path, params), options)
   const result = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(result.message || '请求失败，请检查本地服务后重试。')
+  // 保留状态码，让后台重启后的配置请求可以重新发起。
+  if (!response.ok) {
+    const error = new Error(result.message || '请求失败，请检查本地服务后重试。')
+    error.status = response.status
+    throw error
+  }
   return result
 }

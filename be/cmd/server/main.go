@@ -15,6 +15,7 @@ import (
 	httpapi "app-deployment-platform/internal/deployment/interfaces/http"
 	environment "app-deployment-platform/internal/environment/application"
 	"app-deployment-platform/internal/environment/infrastructure"
+	"app-deployment-platform/internal/startup"
 )
 
 func main() {
@@ -55,7 +56,7 @@ func main() {
 		log.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	httpapi.RegisterRoutes(mux, service, environment.NewService(tools))
+	httpapi.RegisterRoutes(mux, service, environment.NewService(tools), startup.Identity(projectDir))
 	webDir := os.Getenv("MIAODA_WEB_DIR")
 	if webDir == "" {
 		webDir = filepath.Join(projectDir, "fe", "dist")
@@ -63,13 +64,19 @@ func main() {
 	mux.Handle("GET /", http.FileServer(http.Dir(webDir)))
 
 	server := &http.Server{
-		Addr:              address,
+		Addr:              listener.Addr().String(),
 		Handler:           httpapi.LocalOnly(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	log.Printf("[service] started address=http://%s", server.Addr)
-	if os.Getenv("MIAODA_DESKTOP_STARTUP") == "1" {
-		if _, err := fmt.Fprintln(os.Stdout, "ready"); err != nil {
+	mode := os.Getenv("MIAODA_DESKTOP_STARTUP")
+	// Windows 支持动态端口，Mac 启动器继续接收原有的就绪信号。
+	if mode == "1" || mode == "2" {
+		signal := "ready"
+		if mode == "2" {
+			signal = fmt.Sprintf("ready %d", listener.Addr().(*net.TCPAddr).Port)
+		}
+		if _, err := fmt.Fprintln(os.Stdout, signal); err != nil {
 			log.Fatalf("无法通知桌面启动器：%v", err)
 		}
 		log.SetOutput(logFile)

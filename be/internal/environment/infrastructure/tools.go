@@ -253,7 +253,8 @@ func (t *Toolset) command(id string) (string, []string, error) {
 }
 
 func (t *Toolset) inspectAssemble(item domain.Item) domain.Item {
-	candidates := []string{filepath.Join(t.Root, "assemble", "scripts", "export-miaoda-app.sh")}
+	managed := filepath.Join(t.Root, "assemble", "scripts", "export-miaoda-app.sh")
+	candidates := []string{managed}
 	// 保留用户显式指定的打包入口。
 	if custom := os.Getenv("MIAODA_ASSEMBLE_SCRIPT"); custom != "" {
 		candidates = []string{custom}
@@ -272,6 +273,15 @@ func (t *Toolset) inspectAssemble(item domain.Item) domain.Item {
 			return item
 		}
 		item.Status, item.Version = domain.Ready, "2026.11.16"
+		// 平台管理的旧 Windows 组件可在初始环境一键升级。
+		if pkg, err := t.Package("assemble"); entry == managed && err == nil && strings.EqualFold(pkg.SHA256, assembleDigest) {
+			script, err := os.ReadFile(filepath.Join(filepath.Dir(entry), "generate-schema-ddl.sh"))
+			if err == nil && strings.Contains(string(script), "# MIAODA_DDL_STDIN=1") {
+				item.Version = pkg.Version
+			} else if t.Platform == "windows" {
+				item.Status, item.Message = domain.VersionMismatch, "请一键安装新版打包组件，避免 Windows 命令行超长"
+			}
+		}
 		return item
 	}
 	item.Message = "安装平台附带的打包组件"

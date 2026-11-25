@@ -179,6 +179,11 @@ small { color: var(--muted); font-size: 0.85rem; }
 .account-info strong, .account-info small { display: block; overflow-wrap: anywhere; }
 .auth-details { display: grid; justify-items: start; gap: 8px; padding: 14px 0; }
 .auth-details img { border: 1px solid var(--line); border-radius: 8px; }
+.tenant-form { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--canvas); }
+.tenant-form .field { margin-top: 0; }
+.tenant-form .button-row { margin-top: 12px; }
+.tenant-form .auth-details { padding-top: 0; }
+.tenant-setup > .notice { margin-top: 14px; }
 
 .environment-workspace { max-width: 1190px; margin-inline: 0 auto; }
 .setup-stages { display: flex; gap: 32px; margin: 0 0 24px; padding: 0; list-style: none; color: #7d8090; }

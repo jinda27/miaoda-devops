@@ -133,6 +133,8 @@ func (c *Client) Run(ctx context.Context, dir, profile string, dest any, args ..
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir, cmd.Env = dir, Environment()
+	// 防止取消后子进程仍持有输出句柄，卡住状态更新。
+	cmd.WaitDelay = 2 * time.Second
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	output, runErr := cmd.Output()
@@ -188,22 +190,11 @@ func (c *Client) Profiles(ctx context.Context) ([]Profile, error) {
 	defer cancel()
 	profiles := []Profile{}
 	err := c.Run(ctx, c.workDir, "", &profiles, "profile", "list")
+	// 仅接受明确的空数组，防止把无效响应当作零配置。
+	if err == nil && profiles == nil {
+		return nil, errors.New("飞书 CLI 未返回有效的配置列表")
+	}
 	return profiles, err
-}
-
-// confirmAuthorization 确认授权完成后 CLI 已保存有效登录。
-func (c *Client) confirmAuthorization(ctx context.Context, name string) error {
-	profiles, err := c.Profiles(ctx)
-	if err != nil {
-		return err
-	}
-	// 仅在 CLI 返回有效用户后视为授权成功。
-	for _, profile := range profiles {
-		if profile.Name == name && profile.Ready() {
-			return nil
-		}
-	}
-	return errors.New("授权完成后未检测到有效账号，请重新授权")
 }
 
 func (c *Client) SelectProfile(ctx context.Context, name string, ready bool) (Profile, error) {

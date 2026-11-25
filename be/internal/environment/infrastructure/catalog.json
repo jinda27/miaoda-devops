@@ -86,9 +86,9 @@
     {
       "path": "shared/miaoda-app-assemble-scripts.tar.gz",
       "component": "assemble",
-      "version": "2026.11.16",
+      "version": "2026.11.25",
       "platform": "shared",
-      "sha256": "831dd6da108b8714933d2502d45a98b5fe509b23aabdaad523b95f2ac39456d5"
+      "sha256": "589e11ef13e547386957bf97a50e97c6fb010370d48dad9f66a5d84c2801f9d7"
     }
   ]
 }

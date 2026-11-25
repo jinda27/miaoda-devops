@@ -28,6 +28,7 @@ type Service struct {
 	Archive *artifact.ZipArchive
 	Lark    *larkcli.Client
 	Auth    *larkcli.AuthService
+	Config  *larkcli.ConfigService
 	Miaoda  *miaoda.Client
 	Runner  *executor.Runner
 	mu      sync.Mutex
@@ -43,7 +44,7 @@ func NewService(root string) (*Service, error) {
 	gitRepository := gitinfra.NewRepository()
 	service := &Service{
 		Root: root, Jobs: jobs, Archive: artifact.NewZipArchive(), Lark: lark,
-		Auth: larkcli.NewAuthService(lark), Runner: executor.NewRunner(),
+		Auth: larkcli.NewAuthService(lark), Config: larkcli.NewConfigService(lark), Runner: executor.NewRunner(),
 	}
 	service.Miaoda = miaoda.NewClient(root, lark, jobs, gitRepository)
 	if err := service.interruptJobs(); err != nil {

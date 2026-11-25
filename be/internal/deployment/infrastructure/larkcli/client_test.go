@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCLIErrorFailedPrecondition(t *testing.T) {
@@ -49,6 +50,19 @@ case "$1" in
     if [ -f .authorized ]; then status=valid; fi
     printf '[{"name":"tenant","user":"测试用户","tokenStatus":"%s"}]' "$status" ;;
   auth)
+    if [ "$2" = qrcode ]; then exit 0; fi
+    if [ "$3" = --domain ]; then
+      code=1
+      if [ -f .device-count ]; then code=$(($(cat .device-count) + 1)); fi
+      printf '%s' "$code" > .device-count
+      printf '{"device_code":"%s","verification_url":"https://accounts.feishu.cn/test?code=%s","expires_in":300}' "$code" "$code"
+      exit 0
+    fi
+    if [ "${MOCK_QR_EXPIRED:-}" = 1 ] && [ "$4" = 1 ]; then
+      printf '{"ok":false,"error":{"subtype":"token_expired","message":"device code expired"}}' >&2
+      exit 1
+    fi
+    while [ "${MOCK_AUTH_WAIT:-}" = 1 ] && [ "$4" = 1 ]; do sleep 0.03; done
     if [ "${MOCK_LOGIN_FAIL:-}" = "1" ]; then exit 1; fi
     : > .authorized
     printf '{}' ;;
@@ -59,6 +73,19 @@ esac
 	}
 	t.Setenv("MIAODA_LARK_CLI", binary)
 	return NewClient(work)
+}
+
+func beginTestAuthorization(t *testing.T, service *AuthService) Authorization {
+	t.Helper()
+	task, _, err := service.Begin(context.Background(), "tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		task.cancel()
+		<-task.done
+	})
+	return task
 }
 
 func TestExternalCredentialsAreRemoved(t *testing.T) {
@@ -141,8 +168,9 @@ func TestExpiredLoginRequiresAuthorization(t *testing.T) {
 		t.Fatal("过期登录已允许使用平台")
 	}
 	auth := NewAuthService(client)
-	auth.complete(Authorization{ID: "test", profile: "tenant"}, "test-device")
-	result, err := auth.Status("test", "tenant")
+	task := beginTestAuthorization(t, auth)
+	<-task.done
+	result, err := auth.Status(task.ID, "tenant")
 	if err != nil || result.Status != "done" {
 		t.Fatalf("授权未完成：status=%s err=%v", result.Status, err)
 	}
@@ -157,8 +185,9 @@ func TestFailedAuthorizationDoesNotUnlockPlatform(t *testing.T) {
 		client := newAuthorizationTestClient(t)
 		t.Setenv("MOCK_LOGIN_FAIL", "1")
 		auth := NewAuthService(client)
-		auth.complete(Authorization{ID: "test", profile: "tenant"}, "test-device")
-		result, err := auth.Status("test", "tenant")
+		task := beginTestAuthorization(t, auth)
+		<-task.done
+		result, err := auth.Status(task.ID, "tenant")
 		if err != nil || result.Status != "failed" {
 			t.Fatalf("无效授权未失败：status=%s err=%v", result.Status, err)
 		}
@@ -170,4 +199,67 @@ func TestFailedAuthorizationDoesNotUnlockPlatform(t *testing.T) {
 			t.Fatal("无效登录允许使用平台")
 		}
 	})
+}
+
+func TestRefreshAuthorizationQR(t *testing.T) {
+	for _, mode := range []string{"MOCK_QR_EXPIRED", "MOCK_AUTH_WAIT"} {
+		t.Run(mode, func(t *testing.T) {
+			client := newAuthorizationTestClient(t)
+			t.Setenv(mode, "1")
+			auth := NewAuthService(client)
+			first := beginTestAuthorization(t, auth)
+			// 过期任务必须清掉旧链接，等待中的任务也可主动刷新。
+			if mode == "MOCK_QR_EXPIRED" {
+				<-first.done
+				result, err := auth.Status(first.ID, "tenant")
+				if err != nil || result.Status != "expired" || result.URL != "" {
+					t.Fatalf("旧授权未标记为过期：status=%s err=%v", result.Status, err)
+				}
+			}
+			second, status, err := auth.Refresh(context.Background(), first.ID, "tenant")
+			if err != nil || status != 202 || first.ID == second.ID || first.URL == second.URL {
+				t.Fatalf("刷新未取得新授权：status=%d err=%v", status, err)
+			}
+			<-second.done
+			result, err := auth.Status(second.ID, "tenant")
+			if err != nil || result.Status != "done" {
+				t.Fatalf("新授权未完成：status=%s err=%v", result.Status, err)
+			}
+		})
+	}
+}
+
+func TestAuthorizationChecksLocalStateWhileCLIWaiting(t *testing.T) {
+	for _, previous := range []string{"expired", "valid"} {
+		t.Run(previous, func(t *testing.T) {
+			client := newAuthorizationTestClient(t)
+			t.Setenv("MOCK_TOKEN_STATUS", previous)
+			t.Setenv("MOCK_AUTH_WAIT", "1")
+			auth := NewAuthService(client)
+			task := beginTestAuthorization(t, auth)
+			if previous == "valid" {
+				// 重新授权时不能把原有有效登录视为这一次扫码的结果。
+				select {
+				case <-task.done:
+					t.Fatal("旧登录态被当成本次授权")
+				case <-time.After(4500 * time.Millisecond):
+				}
+				return
+			}
+			// 本地登录已完成，但 CLI 等待进程仍未退出。
+			if err := os.WriteFile(filepath.Join(client.WorkDir(), ".authorized"), nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-task.done:
+			case <-time.After(9 * time.Second):
+				t.Fatal("登录已落盘但平台仍等待二维码")
+			}
+			result, err := auth.Status(task.ID, "tenant")
+			if err != nil || result.Status != "done" || result.URL != "" || result.QR != "" ||
+				result.Account == nil || !result.Account.Ready() {
+				t.Fatalf("未确认本地授权结果：%+v err=%v", result, err)
+			}
+		})
+	}
 }

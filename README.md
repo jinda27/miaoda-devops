@@ -7,7 +7,7 @@
 推荐使用预编译启动程序，运行无需预装 Node.js、npm 或 Go：
 
 - Mac：双击 `dist/妙搭部署平台.app`。
-- Windows x64：完整解压 `dist/妙搭部署平台-windows-x64.zip`，双击其中的 `妙搭部署平台.exe`。
+- Windows x64：完整解压 `packages/windows/x64/` 下的便携安装包，双击 `妙搭部署平台.exe`。
 
 首次启动会自动检测 Node.js/npm、lark-cli、Git、Bash、zip 和打包组件。检测以命令能否正常运行为准，不强制限定版本；缺少工具或命令不可用时进入登录前的**初始环境**页面，点击「一键安装」按本机操作系统和原生架构下载安装包。优先使用官方网络地址，连接失败、下载中断或校验失败后改从飞书文档附件下载。安装显示进度，失败可重试；安装后自动复检，通过后进入账号连接。侧边栏可随时重新打开初始环境。
 
@@ -32,7 +32,7 @@ scripts\start.bat
 
 启动脚本会首次安装前端依赖、构建前端并启动后端。macOS / Linux 终端启动时，若端口已被占用，会列出进程并等待确认。默认地址为 [http://127.0.0.1:18080/](http://127.0.0.1:18080/)，可通过 `PORT` 修改。Windows CMD 使用 `set PORT=18081`，PowerShell 使用 `$env:PORT = '18081'`。
 
-平台读取 `lark-cli profile list` 中的租户配置，用所选配置登录和执行任务。添加租户配置时，可复制账号连接页面显示的命令到终端执行。平台复用 `lark-cli` 已保存的登录状态，登录有效时可直接进入工作台；未登录或登录过期时在页面重新授权。平台会清除启动工具注入的临时飞书凭证，只使用本机 CLI 持久化的登录凭据。凭据由 lark-cli 管理。
+平台读取 `lark-cli profile list` 中的租户配置，用所选配置登录和执行任务。首次使用且尚无配置时，点击「初始化飞书」，平台使用默认名称发起配置，并展示飞书链接和二维码。完成后自动选中新租户，再点击「登录飞书」完成授权，无需打开终端或重新检测。已有账号可继续添加其他租户；同名配置禁止覆盖，配置过程支持取消和超时重试，页面刷新可恢复进行中的配置。平台复用 `lark-cli` 已保存的登录状态，登录有效时可直接进入工作台；未登录或登录过期时在页面重新授权。平台会清除启动工具注入的临时飞书凭证，只使用本机 CLI 持久化的登录凭据。凭据由 lark-cli 管理。
 
 ### macOS 双击启动
 
@@ -42,7 +42,9 @@ scripts\start.bat
 
 ### Windows 启动包构建
 
-在配置好 Node.js 和 Go 的 Mac 上运行 `./scripts/build-windows-app.sh`，生成 Windows x64 启动 ZIP。包内包含原生启动器、服务程序、已构建的前端和空 `packages/` 目录，依赖按需下载。Windows 双击启动器后打开本地工作台。端口被其他程序占用时会提示，已运行的平台会直接复用。
+在配置好 Node.js 20 和 Go 的 Mac 上运行 `./scripts/build-windows-app.sh`，在 `packages/windows/x64/standard/` 生成普通版安装包。文件名为 `妙搭部署平台_win_64_yyyyMMdd.zip`，日期按北京时间计算。同一天重新打包成功后覆盖同目录下的旧包。包内包含原生启动器、服务程序、已构建的前端和空 `packages/` 目录，依赖按需下载。Windows 双击启动器后打开本地工作台。启动器只复用同一版本、同一解压目录的服务；旧版或其他程序占用端口时会自动选择空闲端口。
+
+便携版使用 `./scripts/build-windows-app.sh --portable-runtime <依赖目录>` 构建，输出到 `packages/windows/x64/`，与普通版使用相同命名格式。提前将依赖解包到 `node/`、`cli/`、`git/`、`zip/`，版本见 `catalog.json`；打包组件由源码内置。完整解压后双击 `妙搭部署平台.exe`，无需点击「一键安装」。飞书授权和妙搭操作仍需联网。
 
 ## 打包与部署
 
@@ -54,7 +56,7 @@ scripts\start.bat
 
 前端和创意应用使用 lark-cli 源码导出、Git 和妙搭发布命令。全栈打包组件由初始环境安装到用户专用目录，部署由服务端 Go 代码直接完成。也可复用 `~/.agents/skills` 或 `~/.codex/skills` 下的 `miaoda-app-assemble` 脚本，或通过 `MIAODA_ASSEMBLE_SCRIPT` 指定入口路径。全栈包包含源码、配置和数据库结构，源应用业务表数据由妙搭侧单独迁移。
 
-全栈打包脚本需要 `bash`、`node`、`git`、`zip`、`perl` 和基础 Shell 命令；Windows 由便携 Git 提供 Bash 及配套工具。用自定义路径安装 lark-cli 时可设置 `MIAODA_LARK_CLI` 指向可执行文件。`MIAODA_TOOLS_DIR` 可指定专用工具目录，`MIAODA_PACKAGES_DIR` 可指定本地安装包目录。
+全栈打包脚本需要 `bash`、`node`、`git`、`zip`、`perl` 和基础 Shell 命令；Windows 由便携 Git 提供 Bash 及配套工具。打包与部署通过标准输入传递 SQL 请求，避免触发 Windows 32,767 字符命令行上限。Windows 若提示打包组件版本不兼容，在「初始环境」点击「一键安装」即可更新；已有应用 ZIP 可继续部署。用自定义路径安装 lark-cli 时可设置 `MIAODA_LARK_CLI` 指向可执行文件。`MIAODA_TOOLS_DIR` 可指定专用工具目录，`MIAODA_PACKAGES_DIR` 可指定本地安装包目录。
 
 DDL 按扩展、类型、建表、外键、后置对象、初始化数据的阶段顺序执行，同阶段最多 3 个协程并发处理文件，单文件内 SQL 保持原顺序。任一文件失败会取消同阶段请求并停止后续阶段；建表依赖的函数与序列会提前串行创建。
 

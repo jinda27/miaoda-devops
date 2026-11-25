@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/json"
 	"encoding/xml"
@@ -28,6 +29,8 @@ var catalogData []byte
 
 //go:embed assets/assemble.tar.gz
 var assembleData []byte
+
+var assembleDigest = fmt.Sprintf("%x", sha256.Sum256(assembleData))
 
 type Downloader struct {
 	Cache       string
@@ -87,7 +90,7 @@ func (d *Downloader) Acquire(ctx context.Context, pkg Package, progress func(str
 			return "", errors.New("无法清理损坏的安装包缓存")
 		}
 	}
-	if pkg.Component == "assemble" && pkg.SHA256 == "831dd6da108b8714933d2502d45a98b5fe509b23aabdaad523b95f2ac39456d5" {
+	if pkg.Component == "assemble" && strings.EqualFold(pkg.SHA256, assembleDigest) {
 		progress("准备内置打包组件", 10)
 		return d.acquireFile(ctx, pkg.Path, pkg.SHA256, func(destination string) error {
 			return os.WriteFile(destination, assembleData, 0600)

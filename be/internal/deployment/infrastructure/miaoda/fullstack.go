@@ -40,6 +40,23 @@ func (s *Client) DeployFullStack(ctx context.Context, j *domain.Job, work, sourc
 	}
 	codeStage := resumeIndex <= domain.FullDeployStepIndex("提交并推送代码")
 
+	var roles []roleDefinition
+	var adminID, deployerOpenID string
+	// 在创建应用、推送代码和清理目标前检查角色成员身份。
+	if shouldRun("创建应用角色") {
+		var err error
+		roles, adminID, deployerOpenID, err = s.prepareDeployRoles(ctx, j.Profile, work, source)
+		if err != nil {
+			key := j.ResumeFrom
+			// 续跑保留原中断点，避免失败重试重新执行已完成的写操作。
+			if domain.StepIndex(j.Steps, key) < 0 || key == "校验并解压安装包" {
+				key = "创建/复用应用"
+			}
+			s.SetStep(j, key, domain.StepRunning, "检查部署者身份")
+			return fmt.Errorf("部署前角色检查失败：%w", err)
+		}
+	}
+
 	// 创建或校验目标应用。
 	if shouldRun("创建/复用应用") {
 		s.SetStep(j, "创建/复用应用", "running", "")
@@ -115,7 +132,7 @@ func (s *Client) DeployFullStack(ctx context.Context, j *domain.Job, work, sourc
 		s.SetStep(j, "执行 DDL", "success", "")
 	}
 	if shouldRun("创建应用角色") {
-		if err := s.deployRoles(ctx, j, work, source); err != nil {
+		if err := s.deployRoles(ctx, j, work, roles, adminID, deployerOpenID); err != nil {
 			return err
 		}
 	}
@@ -347,14 +364,25 @@ func (s *Client) commitAndPushFullStack(ctx context.Context, repo string, creden
 	return pushErr
 }
 
-// deployRoles 创建角色并将当前部署者加入角色。
-func (s *Client) deployRoles(ctx context.Context, j *domain.Job, work, source string) error {
-	const stepName = "创建应用角色"
-	s.SetStep(j, stepName, "running", "")
+func (s *Client) prepareDeployRoles(ctx context.Context, profile, work, source string) ([]roleDefinition, string, string, error) {
 	roles, adminID, err := parseRolesDocument(filepath.Join(source, assembleRelativeDir, "roles.md"))
 	if err != nil {
-		return fmt.Errorf("解析角色配置失败：%w", err)
+		return nil, "", "", fmt.Errorf("解析角色配置失败：%w", err)
 	}
+	// 无角色的安装包不需要进行身份查询。
+	if len(roles) == 0 {
+		return roles, adminID, "", nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	openID, err := s.currentUserOpenID(ctx, profile, work)
+	return roles, adminID, openID, err
+}
+
+// deployRoles 创建角色并将已确认的部署者加入角色。
+func (s *Client) deployRoles(ctx context.Context, j *domain.Job, work string, roles []roleDefinition, adminID, openID string) error {
+	const stepName = "创建应用角色"
+	s.SetStep(j, stepName, "running", "")
 	if len(roles) == 0 {
 		s.SetStep(j, stepName, "skipped", "安装包未声明应用角色")
 		return nil
@@ -385,23 +413,20 @@ func (s *Client) deployRoles(ctx context.Context, j *domain.Job, work, source st
 		byID[role.RoleID], byName[role.Name] = true, role.RoleID
 	}
 
-	openID, err := s.currentUserOpenID(ctx, j.Profile, work)
-	if err != nil {
-		s.SetStep(j, stepName, "warning", "角色已创建，但无法确认部署者身份，需手动添加角色成员")
-		return nil
-	}
 	memberFailures := []string{}
+	adminFailed := false
 	// 将部署者加入全部角色。
 	for _, role := range roles {
 		body := map[string]any{"users": []string{openID}}
 		path := Path(j.TargetID, "/roles/"+url.PathEscape(role.RoleID)+"/member_add")
 		if err := s.Request(ctx, j.Profile, work, "POST", path, nil, body, nil); err != nil {
-			memberFailures = append(memberFailures, role.Name)
+			memberFailures = append(memberFailures, fmt.Sprintf("%s（%s）", role.Name, clipText(err.Error(), 160)))
+			adminFailed = adminFailed || role.RoleID == adminID
 		}
 	}
 	if len(memberFailures) > 0 {
 		detail := "角色已创建，部署者加入以下角色失败：" + strings.Join(memberFailures, "、")
-		if adminID != "" && containsRoleID(roles, adminID, memberFailures) {
+		if adminFailed {
 			detail = "管理员角色成员添加失败；" + detail
 		}
 		s.SetStep(j, stepName, "warning", detail)
@@ -413,6 +438,26 @@ func (s *Client) deployRoles(ctx context.Context, j *domain.Job, work, source st
 
 // currentUserOpenID 查询当前 CLI 用户身份。
 func (s *Client) currentUserOpenID(ctx context.Context, profile, work string) (string, error) {
+	var status struct {
+		Identities struct {
+			User *struct {
+				Available *bool  `json:"available"`
+				OpenID    string `json:"openId"`
+			} `json:"user"`
+		} `json:"identities"`
+	}
+	// 优先读取同一租户的本地用户态，避免额外申请通讯录权限。
+	if err := s.Lark.Run(ctx, work, profile, &status, "auth", "status", "--json"); err == nil {
+		if user := status.Identities.User; user != nil && user.Available != nil {
+			if !*user.Available {
+				return "", errors.New("当前部署账号的飞书用户登录不可用，请到「切换账号」重新授权后重试")
+			}
+			if validUserOpenID(user.OpenID) {
+				return user.OpenID, nil
+			}
+		}
+	}
+	// 兼容未返回用户身份字段的 CLI 版本。
 	var result struct {
 		Data struct {
 			User struct {
@@ -421,25 +466,20 @@ func (s *Client) currentUserOpenID(ctx context.Context, profile, work string) (s
 		} `json:"data"`
 	}
 	if err := s.Lark.Run(ctx, work, profile, &result, "contact", "+get-user", "--as", "user", "--json"); err != nil {
-		return "", err
+		var cliErr *larkcli.CLIError
+		if errors.As(err, &cliErr) && (cliErr.Subtype == "missing_scope" || cliErr.Subtype == "insufficient_scope") {
+			return "", errors.New("当前部署账号缺少「获取用户基本信息」权限（contact:user.basic_profile:readonly）。请在飞书开放平台为该应用开通权限，再对同一租户账号重新授权后重试")
+		}
+		return "", fmt.Errorf("读取部署者身份失败：%w", err)
 	}
-	if !strings.HasPrefix(result.Data.User.OpenID, "ou_") {
-		return "", errors.New("飞书 CLI 未返回当前用户 open_id")
+	if !validUserOpenID(result.Data.User.OpenID) {
+		return "", errors.New("飞书 CLI 未返回有效的部署者 open_id，请确认使用飞书用户登录，并重新授权后重试")
 	}
 	return result.Data.User.OpenID, nil
 }
 
-func containsRoleID(roles []roleDefinition, adminID string, failures []string) bool {
-	for _, role := range roles {
-		if role.RoleID == adminID {
-			for _, name := range failures {
-				if name == role.Name {
-					return true
-				}
-			}
-		}
-	}
-	return false
+func validUserOpenID(id string) bool {
+	return len(id) > len("ou_") && strings.HasPrefix(id, "ou_") && len(strings.Fields(id)) == 1 && strings.TrimSpace(id) == id
 }
 
 // deployAutomations 创建或更新自动化触发器。
